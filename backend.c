@@ -169,7 +169,7 @@ int main (int argc, char *argv[])
 		{
 			info("Post");
 			w->payloadverb = Post;
-			size_t c = (size_t)strstr(a,"\r\n\r\n")+2;
+			size_t c = (size_t)strstr(a,"\r\n\r\n")+4;
 			if (c == 2){err("Bad POST: no double newline char");close(r);continue;}
 			w->payloadsize = strlen(requested)+1;
 			strcpy(w->payload,(char*)requested);

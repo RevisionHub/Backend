@@ -112,8 +112,8 @@ typedef enum PayloadVerb_enum
 	GotPage,
 	GotFile,
 	Res404,
-	Post
-
+	Post,
+	GotPost
 }PayloadVerb;
 typedef struct Packet_struct
 {
