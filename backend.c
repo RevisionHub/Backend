@@ -125,11 +125,18 @@ int main (int argc, char *argv[])
 	{
 		Packet * n = calloc(MAX_PACKET_SIZE,1);
 		char * reply = calloc(MAX_PACKET_SIZE + HEADER_SIZE,1);
+
+		struct timeval socket_timeout = {.tv_sec = 3,.tv_usec = 0};
+
 		//Define remote socekt address struct
 		struct sockaddr_in remote;
 		int sremote = sizeof(remote);
 		//Accept socket
 		int r = accept(s,(struct sockaddr *)&remote,&sremote);
+
+		setsockopt(r, SOL_SOCKET, SO_RCVTIMEO, (char *)&socket_timeout,sizeof(socket_timeout));
+		setsockopt(r, SOL_SOCKET, SO_SNDTIMEO, (char *)&socket_timeout,sizeof(socket_timeout));
+
 		info("Accepted socket");
 		//If it fails, close
 		if (r < 0) {err("Could not accept socket");close(r);continue;}
@@ -149,7 +156,7 @@ int main (int argc, char *argv[])
 
 		//printf("%s\n",buffer);
 		char * a = strstr(buffer," ")+1;
-		if ((size_t)a==1) //No space char (usually from a https attempt, or a malicious client.
+		if ((size_t)a==1) //No space char (usually a malicious client).
 		{
 			err("Bad request: no space char");
 			make_html(reply,ERR_HTML "Bad request: no space char");
@@ -165,6 +172,7 @@ int main (int argc, char *argv[])
 		char * b = strstr(strstr(a," ")," ");
 		if((size_t)b-(size_t)a>2048) {err("Requested page was too big for buffer");close(r);continue;}
 		strncpy(requested,a,b-a);
+
 		if (!strcmp(html_verb, "POST"))
 		{
 			info("Post");
