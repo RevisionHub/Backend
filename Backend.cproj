@@ -26,7 +26,7 @@
         <Include>${ProjectDir}</Include>
       </Includes>
     </Includes>
-    <LibPaths>s
+    <LibPaths>
       <LibPaths>
         <LibPath>${ProjectDir}</LibPath>
       </LibPaths>
@@ -48,8 +48,5 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="backend.c" />
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="common.h" />
   </ItemGroup>
 </Project>

@@ -17,7 +17,6 @@
 #define BUFFER_SIZE 4096
 #define endl "\n"
 #define ERR_HTML "If you can read this, please notify the owner of this page, and include the error code:<br>"
-#define CERT_FOLDER "/home/harlan/website_ssl/"
 const char * HEADER = 
 	"HTTP/1.1 200 OK\n"
 	"Connection: close\nServer: Copelands House Computing Server (2016)" endl
