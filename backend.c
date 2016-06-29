@@ -10,8 +10,11 @@
 #include <openssl/sha.h>
 //For getpass function
 #include <openssl/ssl.h>
+#include <openssl/evp.h>
 #include <crypt.h>
-#include "common.h"
+#include <pthread.h>
+#include <signal.h>
+#include "../common.h"
 //For SHA256
 #define HASH_SIZE SHA256_DIGEST_LENGTH
 #define BUFFER_SIZE 4096
@@ -20,56 +23,71 @@
 const char * HEADER = 
 	"HTTP/1.1 200 OK\n"
 	"Connection: close\nServer: Copelands House Computing Server (2016)" endl
-	"Content-Type: text/html; charset=utf-8" endl
-	endl
-	endl
+	"Content-Type: text/html; charset=utf-8" endl;
+const char * HTML_HEADER = 
+	"<head>"
+		"<meta content='width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0' name='viewport'/>"
+    	"<meta name='viewport' content='width=device-width' />"
+    	"<link href='/resources/bootstrap3/css/bootstrap.css' rel='stylesheet' />"
+    	"<link href='/resources/bootstrap3/css/font-awesome.css' rel='stylesheet' />"
+    	"<link href='/resources/assets/css/get-shit-done.css' rel='stylesheet' />"
+    	"<link href='/resources/assets/css/demo.css' rel='stylesheet' />"
+    "</head>";
 	//"<head>"
 	//"<link rel=\x22icon\x22 href=\x22" ICON "\x22>"
 	//"</head>"
-	;
 #define HEADER_SIZE strlen(HEADER)-1
+//Define the pipe fd array
+int pipes[DAEMON_ENUM_LENGTH];
 char* make_html(char * dest, char * page)
 {
-	sprintf(dest, "%s%s", HEADER, page);
+	sprintf(dest, "%s\n\n%s%s", HEADER, HTML_HEADER, page);
 	return dest;
 }
-/*
-//other daemons
-char * hash (unsigned char * v)
+unsigned char isEmpty(void * a[], int n)
 {
-	unsigned char h [HASH_SIZE];
-	return SHA256(v,HASH_SIZE,h);
+	for (int i = 0; i < n; i++) if (a[i] != 0) return 0;
+	return 1;
 }
-typedef struct LinkedList_struct
+static void * handler(void * arg)
 {
-	struct LinkedList_struct * next;
-	void * value;
-} LinkedList;
-//inline void link(LinkedList * a,LinkedList * b){a->next = b;}
-typedef struct User_struct
-{
-	char uid[8];
-	char password[HASH_SIZE];
-} User;
-//Should be used with the User struct
-LinkedList online;
-typedef struct WebPage_struct
-{
-	char path[256];
-	User user;
-}WebPage;
-*/
-//unsigned char* decrypt(char*){};//Do decrypt stuff
+	puts("YAY");
+	Packet * n = calloc(MAX_PACKET_SIZE,1);
+	char * reply = calloc(MAX_PACKET_SIZE + HEADER_SIZE,1);
+	SSL * ssl = (SSL *)arg;
+	int r = SSL_get_fd(ssl);
+	//Timeout setup
+	fd_set s;
+	FD_ZERO(&s); FD_SET(pipes[Backend],&s);
+	struct timeval t = {.tv_sec = 1, .tv_usec = 0};
+	switch (select(pipes[Backend]+1, &s, NULL, NULL, &t))
+	{
+		case -1: err("Could not read from FIFO [%x]",r); sprintf(n->payload,"Could not read from FIFO [%x]",r); break;
+		case 0: err("Page daemon timeout"); strcpy(n->payload,ERR_HTML "Page daemon timeout"); break;
+		default: info("Received after %i.%06is",t.tv_sec,1000000-t.tv_usec);read_packet(pipes[Backend],n); break;
+	}
+	switch (n->payloadverb)
+	{
+		//When it hasn't been changed, because the select operation failed
+		case 0:
+		case GotPage:
+			if(isEmpty((void**)n->session,24)) sprintf("%s\nSet-Cookie: %.24s\n\n%s", HEADER, n->session, HTML_HEADER);
+			else make_html(reply,n->payload);
+			SSL_write(ssl,reply,strlen(reply));
+			break;
+		case GotFile: SSL_write(ssl,n->payload,n->payloadsize);break;
+		default: err("Bad payloadverb %i",n->payloadverb);break;
+	}
 
-//DISK STUFF
-
-//Attach disk daemon
-void disk_read(char* path, unsigned char buffer[]);
-void disk_append(char * path, unsigned char buffer[]);
-//END DISK STUFF
+	close(r);
+}
 int main (int argc, char *argv[])
 {
-	//Clear clear pipes
+	//Ignore anything but KILL. Seems to fix the overload bug.
+	sigset_t mask;
+	sigfillset(&mask);
+	sigprocmask(SIG_SETMASK, &mask, NULL);
+	//Clear pipes
 	//for (int i = 0; i < DAEMON_ENUM_LENGTH;i++) deletePipe(0,(Daemon)i);
 	//Define socket
 	int s = socket(AF_INET,SOCK_STREAM,6/*TCP*/);//IPPROTO_TCP
@@ -91,8 +109,6 @@ int main (int argc, char *argv[])
 	info("Set up socket [%x]",s);
 	//Now to pipes
 	//------------------------------------------------------------------------------------------------------------------
-	//Define the pipe fd array
-	int pipes[DAEMON_ENUM_LENGTH];
 	//Fill pipes
 	for (int i = 0; i < DAEMON_ENUM_LENGTH;i++) pipes[i] = createPipe((Daemon)i);
 	//------------------------------------------------------------------------------------------------------------------
@@ -103,8 +119,7 @@ int main (int argc, char *argv[])
 	SSL_library_init();
 	OpenSSL_add_all_algorithms();
 	SSL_load_error_strings();
-	SSL_METHOD * m;
-	m = SSLv23_server_method();
+	const SSL_METHOD * m = SSLv23_server_method();
 	SSL_CTX * ctx;
 	ctx = SSL_CTX_new(m);
 	SSL_CTX_set_ecdh_auto(ctx, 1);
@@ -122,10 +137,7 @@ int main (int argc, char *argv[])
 	//Eternal loop
 	while (1)
 	{
-		Packet * n = calloc(MAX_PACKET_SIZE,1);
-		char * reply = calloc(MAX_PACKET_SIZE + HEADER_SIZE,1);
-
-		struct timeval socket_timeout = {.tv_sec = 3,.tv_usec = 0};
+		struct timeval socket_timeout = {.tv_sec = 1,.tv_usec = 0};
 
 		//Define remote socekt address struct
 		struct sockaddr_in remote;
@@ -134,6 +146,8 @@ int main (int argc, char *argv[])
 		int r = accept(s,(struct sockaddr *)&remote,&sremote);
 
 		setsockopt(r, SOL_SOCKET, SO_RCVTIMEO, (char *)&socket_timeout,sizeof(socket_timeout));
+		socket_timeout.tv_sec = 1;
+		socket_timeout.tv_usec = 0;
 		setsockopt(r, SOL_SOCKET, SO_SNDTIMEO, (char *)&socket_timeout,sizeof(socket_timeout));
 
 		info("Accepted socket");
@@ -158,8 +172,7 @@ int main (int argc, char *argv[])
 		if ((size_t)a==1) //No space char (usually a malicious client).
 		{
 			err("Bad request: no space char");
-			make_html(reply,ERR_HTML "Bad request: no space char");
-			send(r,reply,strlen(reply),0);
+			close(r);
 			continue;
 		} 
 		Packet * w = calloc(MAX_PACKET_SIZE,1);
@@ -171,29 +184,19 @@ int main (int argc, char *argv[])
 		char * b = strstr(strstr(a," ")," ");
 		if((size_t)b-(size_t)a>2048) {err("Requested page was too big for buffer");close(r);continue;}
 		strncpy(requested,a,b-a);
-
+		char * cookies = strstr(requested, "Cookie: ");
+		char * c = strstr(a,"\r\n\r\n")+4;
+		if (cookies > 0 && cookies < c) strncpy(w->session,strstr(cookies, "session=")+sizeof("session="),24);
 		if (!strcmp(html_verb, "POST"))
 		{
 			info("Post");
 			w->payloadverb = Post;
-			size_t c = (size_t)strstr(a,"\r\n\r\n")+4;
-			if (c == 2){err("Bad POST: no double newline char");close(r);continue;}
+			if ((size_t)c < 5){err("Bad POST: no double newline char");close(r);continue;}
 			w->payloadsize = strlen(requested)+1;
 			strcpy(w->payload,(char*)requested);
 			strcpy(w->payload+w->payloadsize,(char *)c);
 			w->payloadsize += strlen((char *)c)+1;
 			write_packet(pipes[User],w);
-			//Timeout setup
-			fd_set s;
-			FD_ZERO(&s); FD_SET(pipes[Backend],&s);
-			struct timeval t = {.tv_sec = 0, .tv_usec = 1000000}; //1s
-			switch (select(pipes[Backend]+1, &s, NULL, NULL, &t))
-			{
-				case -1: err("Could not read from FIFO [%x]",r); sprintf(n->payload,"Could not read from FIFO [%x]",r); break;
-				case 0: err("Page daemon timeout"); strcpy(n->payload,ERR_HTML "Page daemon timeout"); break;
-				default: info("Received after %i.%06is",t.tv_sec,1000000-t.tv_usec);read_packet(pipes[Backend],n); break;
-			}
-
 		}
 		else if(!strcmp(html_verb, "GET"))
 		{
@@ -201,32 +204,13 @@ int main (int argc, char *argv[])
 			w->payloadverb = Get;
 			w->payloadsize = strlen(requested)+1;
 			strcpy(w->payload,requested);
+			puts(w->payload);
 			write_packet(pipes[Page],w);
-			//Timeout setup
-			fd_set s;
-			FD_ZERO(&s); FD_SET(pipes[Backend],&s);
-			struct timeval t = {.tv_sec = 0, .tv_usec = 1000000}; //1s
-			switch (select(pipes[Backend]+1, &s, NULL, NULL, &t))
-			{
-				case -1: err("Could not read from FIFO [%x]",r); sprintf(n->payload,"Could not read from FIFO [%x]",r); break;
-				case 0: err("Page daemon timeout"); strcpy(n->payload,ERR_HTML "Page daemon timeout"); break;
-				default: info("Received after %i.%06is",t.tv_sec,1000000-t.tv_usec);read_packet(pipes[Backend],n); break;
-			}
 		}
-		else err("Bad request");
-		switch (n->payloadverb)
-		{
-			//When it hasn't been changed, because the select operation failed
-			case 0:
-			case GotPage: 
-				make_html(reply,n->payload);
-				SSL_write(ssl,reply,strlen(reply));
-				break;
-			case GotFile: SSL_write(ssl,n->payload,n->payloadsize);break;
-			default: err("Bad payloadverb %i",n->payloadverb);break;
-		}
-
-		close(r);
+		else {err("Bad request");continue;}
+		pthread_t thread;
+		pthread_create(&thread, NULL, &handler, ssl);
 	}
+	puts("OH DEAR");
 	return 0;
 }          

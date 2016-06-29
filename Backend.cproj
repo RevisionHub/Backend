@@ -19,8 +19,7 @@
     <DefineSymbols>DEBUG MONODEVELOP</DefineSymbols>
     <SourceDirectory>.</SourceDirectory>
     <Commandlineparameters>-lssl</Commandlineparameters>
-    <ExtraCompilerArguments>-lssl -lcrypto -Wimplicit-function-declaration</ExtraCompilerArguments>
-    <ExtraLinkerArguments>-lssl -lcrypto</ExtraLinkerArguments>
+    <ExtraLinkerArguments>-lssl -lcrypto -lpthread</ExtraLinkerArguments>
     <Includes>
       <Includes>
         <Include>${ProjectDir}</Include>
